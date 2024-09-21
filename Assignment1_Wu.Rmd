@@ -1,0 +1,108 @@
+---
+title: 'Assignment #1'
+author: "Xingman Wu"
+date: "2024-09-19"
+output: html_document
+---
+--Load relevant software libraries
+```{r}
+#load libraries
+library(quanteda)
+library(tidytext)
+library(tidyverse)
+library(dplyr)
+library(rio)
+library(janitor)
+```
+
+--Load the data: https://github.com/wellsdata/CompText_Jour/blob/main/data/blackindex_master.csv
+```{r}
+#load the data
+data <- read.csv('https://raw.githubusercontent.com/wellsdata/CompText_Jour/refs/heads/main/data/blackindex_master.csv')
+# Raw data was imported here.
+```
+
+--Using code, describe the number of rows and columns in the dataset
+```{r}
+# describe the number of rows and columns in the dataset
+nrow(data) # 1803 rows
+ncol(data) # 30 columns
+```
+
+--Create a table that displays a count of the top 5 newspaper_city entries
+```{r}
+data %>% 
+  select(newspaper_city) %>% 
+  filter(!is.na(newspaper_city))%>% 
+  group_by(newspaper_city) %>% 
+  summarize(count = n()) %>% 
+  arrange(desc(count)) %>%
+  slice_head(n = 5)
+# The top 5 newspaper_city entries are Pittsburgh, Chicago, Atlanta, Norfolk, and New York.
+
+```
+
+--Create a table that counts the different entries in the "newspaper_city" column
+```{r}
+# We can do it in this way
+citytable <- table(data$newspaper_city)
+citytable 
+
+# Alternatively, 
+data %>% 
+  select(newspaper_city) %>% 
+  filter(!is.na(newspaper_city))%>% 
+  group_by(newspaper_city) %>% 
+  summarize(count = n()) %>% 
+  arrange(desc(count))
+
+# both can work
+```
+--Create a table that counts all newspaper_city entries by year. UPDATE: Filter out the NA values
+```{r}
+data %>% 
+  select(newspaper_city, year) %>% 
+  filter(!is.na(newspaper_city) & !is.na(year))%>% 
+  group_by(year,newspaper_city) %>% 
+  summarize(count = n()) %>% 
+  arrange(newspaper_city, desc(count))
+
+```
+
+--Create a simple column ggplot chart that shows the total entries by year
+```{r}
+yeartable<- data %>% 
+  select(year) %>% 
+  filter(!is.na(year))%>% 
+  group_by(year) %>% 
+  summarize(count = n())
+head(yeartable)
+
+
+#Create chart of years
+ggplot(yeartable,aes(x = year, y = count,
+             fill = count)) +
+  geom_col(position = "dodge") + 
+  theme(legend.position = "none") +
+  labs(title = "The total entries by year",
+       caption = "Graphic by Xingman Wu, 9-20-2024",
+       y="Count",
+       x="Year")
+
+```
+
+Armed with your data analysis, write a 250 word memo at the end of the R markdown document that summarizes your findings. 
+Use this opportunity to ask questions or note any major flaws in the data.
+
+```{r}
+nyear<-table(data$year)
+nrow(nyear) # 106 unique year
+
+```
+The dataset includes 1,803 observations (rows) and 30 variables (columns). One variable we are interested in is “Newspaper City.” There are 12 cities in total. One of the main issues is a large number of missing values in the “Newspaper City”, with 1,089 entries marked as NA. Despite this, the most frequent cities among the remaining valid entries are Pittsburgh with 151, Chicago with 147, Atlanta with 122, Norfolk with 96, and New York with 71. Other cities, such as Battle Creek and Boston, are also present in the dataset but have much lower counts, each with only one entry. These numbers might be related with the size of the cities, the specific events happened in the cities, and the media development within the cities, etc.
+
+During the early period (the late 1800s and early 1900s), there were not many entries. Entering into the 1920s, more entries appeared, particularly in cities like Boston, Pittsburgh, and Chicago. Most of the entries were published between 1920 and 1960. After 1960, not many entries were recorded in our dataset. Among all the cities listed, Atlanta is the city with the most dramatic variation, reaching its peak in 1946. It’s also noticeable that not only Atlanta, but also Chicago, Cleveland, Norfolk, and Philadelphia had relatively high entry counts in 1946. This suggests that something significant may have happened in 1946.
+
+However, the significant amount of missing data reduces the dataset’s completeness, making the conclusions drawn from it unreliable and easily overturned. More trend analyses and historical checks can be conducted to confirm the assumptions we just made.
+
+
