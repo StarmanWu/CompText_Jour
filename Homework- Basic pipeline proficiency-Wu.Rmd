@@ -1,0 +1,174 @@
+---
+title: "Homework-Wu"
+author: "Xingman Wu"
+date: "2024-10-20"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(janitor)
+library(lubridate)
+library(jsonlite)
+library(tidyr)
+library(rio)
+library(quanteda)
+# I am kind of used to library all potential packages ahead, but I am not sure whether it is the method others are using. How do you normally load libraries, Professor? I would appreciate your advice! 
+```
+
+## 1. Import the data
+```{r}
+data <-read_csv("/Users/xingxing/Desktop/ChinaFDI-LAT_tidy.csv")
+head(data)
+View(data)
+```
+
+
+## 2. Use code to count the number of unique articles in the dataset
+```{r}
+article_un <- data  %>%
+  distinct(article_nmbr, .keep_all = TRUE) %>% 
+  # to keep all columns in the rows that are not duplicates
+  count(article_nmbr) %>% 
+  summarize(total =sum(n)) 
+article_un 
+# There are 36 distinct articles in total.
+```
+
+
+## 3. Remove useless metadata such as "Los Angeles Times" and "ISSN".
+```{r}
+data_use <- data %>% mutate(text = str_squish(text)) |> 
+  mutate(text = tolower(text)) |>  
+  mutate(text = str_replace_all(text, "search.proquest.com|los angeles|los angeles times|los angeles, calif\\.|issn", ""))
+# I've already removed the phrase "los angeles" here, in the original data set (instead of doing it in question 4).
+View(data_use)
+```
+
+## 4. Tokenize the data, remove stop words, remove the phrase "los angeles," and create a dataframe of one word per row
+```{r}
+
+data_use <- str_replace_all(data_use$text, "- ", "")
+data_tok <- tibble(data_use,)
+head(data_tok) # The name of the column is data_use
+data_tok_mono <- data_tok %>%
+  tidytext::unnest_tokens(word,data_use)
+View(data_tok_mono) # Tokenize, and create the dateframe of one word per row
+
+# remove stop words 
+data_tok_mono_filtered <- data_tok_mono  %>%
+  filter(!word %in% stop_words$word) %>%
+  filter(!is.na(word)) # I removed NA anyways.
+data_tok_mono_filtered 
+# Now, "data_tok_filtered" is the tokenized, cleaned dataframe of one word per row
+```
+
+
+## 5. Generate a list of the top 20 bigrams
+```{r}
+# create bigram
+data_tok_bi <- data_tok  %>%
+  unnest_tokens(bigram, data_use, token="ngrams", n=2)
+View(data_tok_bi)
+
+data_tok_bi_count <- data_tok_bi %>%
+  separate(bigram, c("word1", "word2"), sep = " ")%>% # Seperate the words
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word) %>% # remove stopwords
+  filter(!is.na(word1)) %>%
+  filter(!is.na(word2)) %>%  # remove NAs
+  count(word1, word2, sort = TRUE)
+data_tok_bi_count 
+
+# top 20 bigrams
+data_tok_bi_count_20  <- data_tok_bi_count  %>% 
+  slice_max(n, n=20) 
+data_tok_bi_count_20
+```
+
+## 6. Create a ggplot chart showing the top 20 bigrams
+```{r}
+library(ggplot2)
+library(forcats)
+
+# combine the "word1" and "word2" into one column, and create a new data frame
+plot_bi <- data.frame(word= paste(data_tok_bi_count_20$word1, data_tok_bi_count_20$word2), n = data_tok_bi_count_20$n)
+head(plot_bi)
+#View(plot_bi)
+
+plot_bi  %>%
+  ggplot(aes(n, fct_reorder(word, n, .desc = F))) +
+  geom_col() +
+  labs(y = NULL) + 
+   labs(title = "Top 20 bigrams", 
+       subtitle = "In Los Angeles Times articles about Chinese business in the U.S",
+       caption = "Graphic by Xingman Wu, 10/19/2024",
+       y="word",
+       x="n")
+```
+
+
+
+## 7. Run a sentiment analysis using the Afinn lexicon
+```{r}
+library(textdata)
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(tidytext)
+
+#load("afinn.rda")
+get_sentiments("afinn")
+afinn
+#data_tok_mono_filtered 
+
+# Generally speaking:
+afinn <- data_tok_mono_filtered  %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+#The sum of afinn sentiment of the tokenized words is 216. Since 216 is way higher than 0, these articles, generally speaking, holding positive emotions when they are covering Chinese business activities in the U.S.
+
+# Let's see how each article reported it:
+# Grouped by articles
+grouped_data <- data %>%
+  group_by(article_nmbr) %>%         # Tokenize it by articles   
+  unnest_tokens(word, text)            
+grouped_data
+
+# remove stop words 
+grouped_data_filtered <- grouped_data  %>%
+  filter(!word %in% stop_words$word) %>%
+  filter(!is.na(word)) # I removed NA anyways.
+grouped_data_filtered 
+
+# Now, we calculate the sentiments by articles
+sentiment_art <- grouped_data_filtered %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(article_nmbr) %>% 
+  summarise(sentiment = sum(value))
+sentiment_art # Here we go!
+
+# Plot sentiment over the articles
+ggplot(sentiment_art , aes(x = article_nmbr, y = sentiment)) +
+  geom_col() +
+  labs(title = "Sentiment Analysis using AFINN",
+       x = "Article",
+       y = "Sentiment Score")
+
+```
+
+
+#### memo:
+
+There are 36 distinct articles in total, with most of them focusing on national security and foreign investment in relation to Chinese business activities in the U.S. For the sentiment analysis, I began by calculating the overall sentiment across all articles, which resulted in a score of 216, indicating a generally positive tone (since the score is greater than 0). This suggests that, broadly speaking, the articles convey a positive sentiment when discussing Chinese business in the U.S. Next, to analyze the sentiment of each article individually, I grouped the sentiment scores by article. To do this, I re-tokenized the text, ensuring that the "article_nmbr" column was included in the tokenized data. This approach proved efficient. The resulting plot allows us to easily compare which articles express a more positive sentiment and which lean toward a more negative tone.
+
+
+
+
+
+
+
