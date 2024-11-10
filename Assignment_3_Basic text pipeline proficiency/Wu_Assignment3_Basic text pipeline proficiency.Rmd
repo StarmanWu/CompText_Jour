@@ -1,0 +1,290 @@
+---
+title: "Wu_Assignment3_Basic text pipeline proficiency"
+author: "Xingman Wu"
+date: "2024-11-05"
+output: html_document
+---
+
+## Import a text dataset
+## Load libraries
+```{r}
+library(tidyverse)
+library(pdftools)
+
+#Using pdftools package. Good for basic PDF extraction
+text <- pdf_text("../exercises/assets/pdfs/moley_news.PDF")
+#pdf_text reads the text from a PDF file.
+writeLines(text, "../exercises/assets/extracted_text/moley_news.txt")
+#writeLines writes this text to a text file
+
+```
+
+# Split text to separate articles on common identifier
+```{r}
+# Step 1: Read the entire text file into R
+#For Mac: In Finder, Cntl + click on the filename, NOW hold down Alt/Option, and an item to copy file path will appear as Copy "Filename" as Pathname
+file_path <- "../exercises/assets/extracted_text/moley_news.txt"
+text_data <- readLines(file_path)
+
+# Step 2: Combine lines into one single string
+text_combined <- paste(text_data, collapse = "\n")
+
+# Step 3: Split the text by the "End of Document" phrase
+documents <- strsplit(text_combined, "End of Document")[[1]]
+
+# Step 4: Write each section to a new file
+output_dir <- "../exercises/assets/extracted_text/"
+for (i in seq_along(documents)) {
+  output_file <- file.path(output_dir, paste0("moley_news_extracted_", i, ".txt"))
+  writeLines(documents[[i]], output_file)
+}
+
+cat("Files created:", length(documents), "\n")
+```
+
+# Create an index from the first extracted page
+```{r}
+moley_index <- read_lines("../exercises/assets/extracted_text/moley_news_extracted_1.txt")
+# Extract lines 16 to 172
+extracted_lines <- moley_index[16:172]
+
+
+# Print the extracted lines to the console
+cat(extracted_lines, sep = "\n")
+
+extracted_lines <- extracted_lines |> 
+  as.data.frame() 
+
+extracted_lines <- extracted_lines |> 
+  mutate(extracted_lines = str_remove(extracted_lines, "\\| About LexisNexis \\| Privacy Policy \\| Terms & Conditions \\| Copyright © 2020 LexisNexis"))
+
+extracted_lines 
+```
+
+#Build a final dataframe index
+```{r}
+# Step 1: Trim spaces and detect rows with titles and dates
+cleaned_data <- extracted_lines |>
+  mutate(
+    # Trim leading and trailing spaces before detection
+    trimmed_line = str_trim(extracted_lines),  
+
+    # Detect titles (start with a number and a period)
+    is_title = str_detect(trimmed_line, "^\\d+\\. "),  
+
+    # Detect dates (e.g., "Aug 14, 2024")
+    is_date = str_detect(trimmed_line, "\\b\\w{3} \\d{1,2}, \\d{4}\\b")
+  )
+
+# Step 2: Shift dates to align with corresponding titles
+aligned_data <- cleaned_data |>
+  mutate(
+    date = ifelse(lead(is_date, 1), lead(trimmed_line, 1), NA_character_)  # Shift date to title's row
+  ) |>
+  filter(is_title) |>
+  select(trimmed_line, date)  # Keep only the relevant columns
+
+# Step 3: Rename columns for clarity
+final_data <- aligned_data |>
+  rename(
+    title = trimmed_line,
+    date = date
+  )
+
+#Step 4: Date and Publication in separate columns, and formatted
+final_data <- separate(data = final_data, col = date, into = c("date2", "publication"), sep = "  ", extra = "merge", fill = "right")
+
+
+#Step 5: Format date, clean headline
+final_data <- final_data |> 
+  mutate(date = as.Date(date2,format = "%b %d, %Y")) |> 
+  mutate(title =str_remove(title, "^\\d+\\. ")) |> 
+  subset(select = -(date2)) |> 
+  mutate(index = row_number()) |> 
+  select(index, date, title, publication)
+View(final_data)
+
+#write_csv(final_data, "assets/moley.csv")
+  
+```
+
+# Raw text compiler 
+###Fix Article 1 to remove the index
+```{r}
+article1 <- read_lines("../exercises/assets/extracted_text/moley_news_extracted_1.txt")
+article1
+
+article1_cleaned <- article1[179:243]
+
+writeLines(article1_cleaned, "../exercises/assets/extracted_text/moley_news_extracted_1.txt")
+
+```
+
+```{r include=FALSE}
+#This creates an index with the file path to the stories. And then it compiles the stories into a dataframe
+#####################
+# Begin SM Code #####
+#####################
+
+###
+# List out text files that match pattern .txt, create DF
+###
+
+files <- list.files("../exercises/assets/extracted_text", pattern="*.txt") %>% 
+  as.data.frame() |> 
+  rename(filename = 1) |> 
+  #create an index with the file name
+ mutate(index = str_extract(filename, "\\d+")) |> 
+  mutate(index = as.numeric(index))
+
+#the actual path: #~/Code/CompText_Jour/exercises/assets/extracted_text
+
+#Join the file list to the index
+
+#load final data if you haven't already
+#final_data <- read.csv("assets/final_data.csv")
+
+final_index <- final_data |> 
+  inner_join(files, c("index")) |> 
+#you need the actual hard-coded path on this line below to the text
+  mutate(filepath = paste0("../exercises/assets/extracted_text/", filename))
+
+head(final_index)
+View(final_index)
+```
+
+#Text compiler
+```{r}
+###
+# Define function to loop through each text file 
+###
+
+create_article_text <- function(row_value) {
+  
+  #row_value is the single argument that is passed to the function
+  # Take each row of the dataframe
+  temp <- final_index %>%
+    slice(row_value)
+  
+  # Store the filename for  use in constructing articles dataframe
+  temp_filename <- temp$filename
+  
+  # Create a dataframe by reading in lines of a given textfile
+  # Add a filename column 
+  articles_df_temp <- read_lines(temp$filepath) %>%
+    as_tibble() %>%
+    mutate(filename = temp_filename)
+  
+  # Bind results to master articles_df
+  # <<- returns to global environment
+  articles_df <<- articles_df %>%
+    bind_rows(articles_df_temp)
+}
+
+###
+# Create elements needed to run function
+###
+
+# Create empty tibble to store results
+articles_df <- tibble()
+#running once to test
+#create_article_text(2) 
+# Create an array of numbers to loop through, from 1 to the number of rows in our index dataframe 
+row_values <- 1:nrow(final_index)
+
+###
+# Execute function using lapply
+# This loops through each row of the dataframe and append results to master file
+###
+
+lapply(row_values, create_article_text)
+
+###
+# Clean up articles_df and join to index dataframe
+###
+
+articles_df <- articles_df %>%
+  select(filename, sentence=value) %>%
+  inner_join(final_index)
+
+View(articles_df)
+#After viewing articles_df, I see the first line from the index that I don't need. Cutting it 
+
+articles_df <- articles_df %>%
+  slice(-1) |> 
+  #gets rid of blank rows
+    filter(trimws(sentence) != "") %>%
+  slice(-1) 
+
+write.csv(articles_df, "../exercises/assets/extracted_text/moley.csv")
+# Now we get the data frame with one row per sentence
+```
+
+
+#Then tokenize the data, one word per row Clean the data
+```{r}
+library(tidyverse)
+library(tidytext)
+library(janitor)
+library(lubridate)
+library(jsonlite)
+library(rio)
+library(quanteda)
+
+articles_df <- articles_df %>% mutate(text = str_squish(sentence)) 
+articles_df <- articles_df %>% 
+  mutate(text = tolower(text)) |>  
+  mutate(text = str_replace_all(text, "wiki|enwikipediaorg|load-date|news service|publication-type|publication type|the new york times|www.alt-m.org|length:|language: english|all rights reserved|Length|words|title|pages|publication date|publication subject|issn|language of publication: english|document url|copyright|last updated|database|startofarticle|proquest document id|classification|https|--|people|publication info|illustration|caption|[0-9.]|identifier /keyword|twitter\\.", ""))
+
+data_use <- str_replace_all(articles_df$text, "- ", "")
+data_tok <- tibble(data_use,)
+head(data_tok) # The name of the column is data_use
+
+# create bigram
+data_tok_bi <- data_tok  %>%
+  unnest_tokens(bigram, data_use, token="ngrams", n=2)
+#View(data_tok_bi)
+
+data_tok_bi_count <- data_tok_bi %>%
+  separate(bigram, c("word1", "word2"), sep = " ")%>% # Seperate the words
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word) %>% # remove stopwords
+  filter(!is.na(word1)) %>%
+  filter(!is.na(word2)) %>%  # remove NAs
+  count(word1, word2, sort = TRUE)
+data_tok_bi_count 
+
+# top 20 bigrams
+data_tok_bi_count_20  <- data_tok_bi_count  %>% 
+  slice_max(n, n=20) 
+data_tok_bi_count_20
+```
+
+#Create a ggplot chart showing the top 20 bigrams
+```{r}
+library(ggplot2)
+library(forcats)
+
+# combine the "word1" and "word2" into one column, and create a new data frame
+plot_bi <- data.frame(word= paste(data_tok_bi_count_20$word1, data_tok_bi_count_20$word2), n = data_tok_bi_count_20$n)
+head(plot_bi)
+View(plot_bi)
+
+plot_bi  %>%
+  ggplot(aes(n, fct_reorder(word, n, .desc = F), fill = n)) +
+  geom_col() +
+  labs(y = NULL) + 
+   labs(title = "Top 20 bigrams", 
+       subtitle = "In 32 articles about journalist and political operative Raymond Moley",
+       caption = "Graphic by Xingman Wu, 11/8/2024",
+       y="word",
+       x="n")
+
+
+```
+
+#At the bottom of the R markdown document, write a 300 word memo describing your key findings.
+
+There are 32 articles in total. After running the bigram analysis, I found that these 32 articles are centered around Raymond Moley and the New Deal period. Moley, a close advisor to FDR, played a big role in creating the early New Deal ideas and FDR’s famous inaugural speech, which aimed to lift people’s spirits during the Great Depression. However, Moley later became critical, feeling the New Deal went too far with changes like moving away from the gold standard, which allowed more flexible spending. This shift in economic policy, often seen as "Keynesian" (after economist John Maynard Keynes), was debated for its effectiveness. The New Deal’s policies, like bank holidays to stabilize banks, showed how the government was now deeply involved in helping the economy, which some people supported and others found too controlling. Figures like Labor Secretary Frances Perkins helped advance workers' rights, while universities, especially Moley’s Columbia, influenced and critiqued these policies. The impact reached globally, with countries like South Africa looking at the New Deal as an example during their own struggles. In the end, the New Deal was about the federal government taking bold action to try to fix the economy, even though some felt it overstepped, and its success remains a topic of debate.
+
+
